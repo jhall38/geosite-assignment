@@ -1,0 +1,172 @@
+AWSTemplateFormatVersion: 2010-09-09
+Resources:
+  PublicSubnetRTAss:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PublicSubnetRT
+      SubnetId: !Ref PublicSubnet
+  PrivateSubnetRTAss1:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PrivateSubnetRT
+      SubnetId: !Ref PrivateSubnet1
+  PrivateSubnetRTAss2:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PrivateSubnetRT
+      SubnetId: !Ref PrivateSubnet2
+  MyVPCAttachment:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref IGateway
+  MyVPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.0.0.0/16
+  PublicSubnet:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.0.0/24
+      AvailabilityZone: us-east-2a
+    DependsOn:
+      - MyVPC
+  PrivateSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: us-east-2a
+  PrivateSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: us-east-2b
+    DependsOn:
+      - MyVPC
+  PrivateSubnetRT:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref MyVPC
+  PublicSubnetRT:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref MyVPC
+  RouteToInternet:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PublicSubnetRT
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGateway
+  IGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties: {}
+    DependsOn:
+      - MyVPC
+  RDSSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: Group for RDS
+      SubnetIds:
+        - !Ref PrivateSubnet2
+        - !Ref PrivateSubnet1
+    DependsOn:
+      - MyVPC
+  RDSInstance:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      DBInstanceClass: db.t2.small
+      Engine: postgres
+      EngineVersion: '11'
+      DBName: geosite
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      AllocatedStorage: '100'
+  ELB:
+    Type: 'AWS::ElasticLoadBalancing::LoadBalancer'
+    Properties:
+      Listeners:
+        - InstancePort: '8080'
+          InstanceProtocol: tcp
+          LoadBalancerPort: '443'
+          Protocol: tcp
+      Subnets:
+        - !Ref PublicSubnet
+      Instances:
+        - !Ref Instance1
+        - !Ref Instance2
+  Instance1:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          GroupSet:
+            - !Ref SSHSG
+          SubnetId: !Ref PublicSubnet
+      ImageId: ami-00c03f7f7f2ec15c3
+      InstanceType: t3.small
+      KeyName: !Ref KeyPair
+      UserData: !Base64 >-
+        #!/bin/bash
+
+        yum update -y
+
+        wget
+        https://download.docker.com/linux/static/stable/x86_64/docker-19.03.4.tgz
+
+        tar xzvf docker-19.03.4.tgz
+
+        cp docker/* /usr/bin/
+  Instance1IP:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      InstanceId: !Ref Instance1
+  Instance2:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          GroupSet:
+            - !Ref SSHSG
+          SubnetId: !Ref PublicSubnet
+      ImageId: ami-00c03f7f7f2ec15c3
+      InstanceType: t3.small
+      KeyName: !Ref KeyPair
+      UserData: !Base64 >-
+        #!/bin/bash
+
+        yum update -y
+
+        wget
+        https://download.docker.com/linux/static/stable/x86_64/docker-19.03.4.tgz
+
+        tar xzvf docker-19.03.4.tgz
+
+        cp docker/* /usr/bin/
+  Instance2IP:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      InstanceId: !Ref Instance2
+  SSHSG:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId: !Ref MyVPC
+      GroupDescription: Allow SSH access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          CidrIp: 0.0.0.0/0
+          FromPort: 22
+          ToPort: 22
+Parameters:
+  KeyPair:
+    Description: Key pair for instancnes
+    Type: String
+  DBUsername:
+    Description: Username for DB
+    Type: String
+  DBPassword:
+    Description: Password for DB
+    Type: String
